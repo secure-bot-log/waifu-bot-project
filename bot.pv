@@ -1,0 +1,142 @@
+import telebot
+import sqlite3
+import random
+import time
+
+# Replace with your actual bot token
+BOT_TOKEN = '7713565665:AAHtXfP9dW2HG3DS5NOvG8JPnnpR2bXBAAM'
+GAME_BOT = telebot.TeleBot(BOT_TOKEN)
+
+# Database setup
+db = sqlite3.connect('waifus.db', check_same_thread=False)
+cursor = db.cursor()
+cursor.execute('''CREATE TABLE IF NOT EXISTS players (
+                    user_id INTEGER PRIMARY KEY,
+                    waifus TEXT
+                )''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS waifus (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    anime TEXT,
+                    rarity TEXT,
+                    code TEXT,
+                    image_url TEXT
+                )''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS sudo (
+                    user_id INTEGER PRIMARY KEY
+                )''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS developer (
+                    user_id INTEGER PRIMARY KEY
+                )''')
+db.commit()
+
+DEVELOPER_ID = 1890903731  # Developer ID
+SUDO_IDS = set()
+
+# Load Sudo Users
+cursor.execute("SELECT user_id FROM sudo")
+for row in cursor.fetchall():
+    SUDO_IDS.add(row[0])
+
+def is_sudo(user_id):
+    return user_id in SUDO_IDS or user_id == DEVELOPER_ID
+
+@GAME_BOT.message_handler(commands=['addsudo'])
+def add_sudo(message):
+    if message.from_user.id != DEVELOPER_ID:
+        GAME_BOT.reply_to(message, "Only the developer can add sudo users.")
+        return
+    try:
+        new_sudo_id = int(message.text.split()[1])
+        cursor.execute("INSERT OR IGNORE INTO sudo (user_id) VALUES (?)", (new_sudo_id,))
+        db.commit()
+        SUDO_IDS.add(new_sudo_id)
+        GAME_BOT.reply_to(message, f"✅ User {new_sudo_id} is now a sudo user.")
+    except:
+        GAME_BOT.reply_to(message, "Usage: /addsudo <user_id>")
+
+@GAME_BOT.message_handler(commands=['removesudo'])
+def remove_sudo(message):
+    if message.from_user.id != DEVELOPER_ID:
+        GAME_BOT.reply_to(message, "Only the developer can remove sudo users.")
+        return
+    try:
+        sudo_id = int(message.text.split()[1])
+        cursor.execute("DELETE FROM sudo WHERE user_id = ?", (sudo_id,))
+        db.commit()
+        SUDO_IDS.discard(sudo_id)
+        GAME_BOT.reply_to(message, f"❌ User {sudo_id} has been removed from sudo users.")
+    except:
+        GAME_BOT.reply_to(message, "Usage: /removesudo <user_id>")
+
+RARITY_MAP = {
+    "Common": "⚪️",
+    "Medium": "🟢",
+    "Legendary": "🟡",
+    "Mythical": "🔮",
+    "Special Edition": "💮",
+    "Premium": "💎"
+}
+
+spawn_count = 0
+special_spawn = 0
+premium_spawn = 0
+
+@GAME_BOT.message_handler(commands=['spe'])
+def set_special_spawn(message):
+    if not is_sudo(message.from_user.id):
+        GAME_BOT.reply_to(message, "You are not authorized to use this command.")
+        return
+    global special_spawn
+    try:
+        special_spawn = int(message.text.split()[1])
+        GAME_BOT.reply_to(message, f"✅ Special Edition waifu will spawn after {special_spawn} waifus.")
+    except:
+        GAME_BOT.reply_to(message, "Usage: /spe <number>")
+
+@GAME_BOT.message_handler(commands=['pre'])
+def set_premium_spawn(message):
+    if not is_sudo(message.from_user.id):
+        GAME_BOT.reply_to(message, "You are not authorized to use this command.")
+        return
+    global premium_spawn
+    try:
+        premium_spawn = int(message.text.split()[1])
+        GAME_BOT.reply_to(message, f"✅ Premium waifu will spawn after {premium_spawn} waifus.")
+    except:
+        GAME_BOT.reply_to(message, "Usage: /pre <number>")
+
+@GAME_BOT.message_handler(commands=['spawn'])
+def spawn_waifu(message):
+    global spawn_count, special_spawn, premium_spawn
+    spawn_count += 1
+    cursor.execute("SELECT name, anime, rarity, image_url FROM waifus WHERE rarity IN ('Common', 'Medium', 'Legendary', 'Mythical') ORDER BY RANDOM() LIMIT 1")
+    waifu = cursor.fetchone()
+    
+    if waifu:
+        name, anime, rarity, image_url = waifu
+        rarity_emoji = RARITY_MAP.get(rarity, "")
+        GAME_BOT.send_message(message.chat.id, f"A wild waifu appeared!\nName: {name}\nAnime: {anime}\nRarity: {rarity} {rarity_emoji}")
+        GAME_BOT.send_photo(message.chat.id, image_url)
+
+    if special_spawn and spawn_count % special_spawn == 0:
+        cursor.execute("SELECT name, anime, rarity, image_url FROM waifus WHERE rarity = 'Special Edition' ORDER BY RANDOM() LIMIT 1")
+        special_waifu = cursor.fetchone()
+        if special_waifu:
+            name, anime, rarity, image_url = special_waifu
+            rarity_emoji = RARITY_MAP.get(rarity, "")
+            GAME_BOT.send_message(message.chat.id, f"🔥 A Special Edition waifu appeared!\nName: {name}\nAnime: {anime}\nRarity: {rarity} {rarity_emoji}")
+            GAME_BOT.send_photo(message.chat.id, image_url)
+
+    if premium_spawn and spawn_count % premium_spawn == 0:
+        cursor.execute("SELECT name, anime, rarity, image_url FROM waifus WHERE rarity = 'Premium' ORDER BY RANDOM() LIMIT 1")
+        premium_waifu = cursor.fetchone()
+        if premium_waifu:
+            name, anime, rarity, image_url = premium_waifu
+            rarity_emoji = RARITY_MAP.get(rarity, "")
+            GAME_BOT.send_message(message.chat.id, f"💎 A Premium waifu appeared!\nName: {name}\nAnime: {anime}\nRarity: {rarity} {rarity_emoji}")
+            GAME_BOT.send_photo(message.chat.id, image_url)
+
+GAME_BOT.remove_webhook()
+GAME_BOT.set_webhook(url='https://your-domain.com/webhook')
+
